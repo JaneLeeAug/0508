@@ -7,7 +7,7 @@ from datasets import Dataset
 from single_inference import single_inference, CustomCosyVoice
 from g2pw import G2PWConverter
 from transformers import BertTokenizer
-
+import traceback
 _real_from_pretrained = BertTokenizer.from_pretrained
 
 def _patched_from_pretrained(model_name_or_path, *args, **kwargs):
@@ -30,34 +30,68 @@ def process_batch(csv_file, speaker_prompt_audio_folder, output_audio_folder, mo
     cosyvoice, bopomofo_converter = model
 
     def gen_audio(row):
-        speaker_prompt_audio_path = os.path.join(speaker_prompt_audio_folder, f"{row['speaker_prompt_audio_filename']}.wav")
+        speaker_prompt_audio_path = os.path.join(
+            speaker_prompt_audio_folder,
+            f"{row['speaker_prompt_audio_filename']}.wav"
+        )
+    
         speaker_prompt_text_transcription = row['speaker_prompt_text_transcription']
         content_to_synthesize = row['content_to_synthesize']
-        output_audio_path = os.path.join(output_audio_folder, f"{row['output_audio_filename']}.wav")
-
+    
+        output_audio_path = os.path.join(
+            output_audio_folder,
+            f"{row['output_audio_filename']}.wav"
+        )
+    
+        # 檢查 prompt audio 是否存在
         if not os.path.exists(speaker_prompt_audio_path):
-            print(f"File {speaker_prompt_audio_path} does not exist")
-            return row #{"status": "failed", "reason": "file not found"}
-        if not os.path.exists(output_audio_path):
-            single_inference(speaker_prompt_audio_path, content_to_synthesize, output_audio_path, cosyvoice, bopomofo_converter, speaker_prompt_text_transcription)
-        else:
-            pass
-        # command = [
-        #     "python", "single_inference.py",
-        #     "--speaker_prompt_audio_path", speaker_prompt_audio_path,
-        #     "--speaker_prompt_text_transcription", speaker_prompt_text_transcription,
-        #     "--content_to_synthesize", content_to_synthesize,
-        #     "--output_path", output_audio_path
-        # ]
-
-        # try:
-        #     print(f"Processing: {speaker_prompt_audio_path}")
-        #     subprocess.run(command, check=True)
-        #     print(f"Generated: {output_audio_path}")
-        #     return row #{"status": "success", "output": gen_voice_file_name}
-        # except subprocess.CalledProcessError as e:
-        #     print(f"Failed to generate {speaker_prompt_audio_path}, error: {e}")
-        #     return row #{"status": "failed", "reason": str(e)}
+            print(f"[Skip] File does not exist: {speaker_prompt_audio_path}")
+            return row
+    
+        # 已經生成過則跳過
+        if os.path.exists(output_audio_path):
+            print(f"[Skip] Output already exists: {output_audio_path}")
+            return row
+    
+        try:
+            print("=" * 80)
+            print(f"[Start] {row['output_audio_filename']}")
+            print(f"Prompt audio: {speaker_prompt_audio_path}")
+            print(f"Content: {content_to_synthesize}")
+            print(f"Prompt text: {speaker_prompt_text_transcription}")
+    
+            single_inference(
+                speaker_prompt_audio_path,
+                content_to_synthesize,
+                output_audio_path,
+                cosyvoice,
+                bopomofo_converter,
+                speaker_prompt_text_transcription
+            )
+    
+            print(f"[Success] Generated: {output_audio_path}")
+    
+        except Exception as e:
+            print("=" * 80)
+            print(f"[Error] Failed: {row['output_audio_filename']}")
+            print(f"Prompt audio: {speaker_prompt_audio_path}")
+            print(f"Output path: {output_audio_path}")
+    
+            print("\n[Content to synthesize]")
+            print(repr(content_to_synthesize))
+    
+            print("\n[Prompt transcription]")
+            print(repr(speaker_prompt_text_transcription))
+    
+            print("\n[Exception]")
+            print(repr(e))
+    
+            print("\n[Traceback]")
+            traceback.print_exc()
+    
+            print("=" * 80)
+    
+        return row
 
     dataset = dataset.map(gen_audio)
 
